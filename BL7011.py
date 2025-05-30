@@ -131,7 +131,7 @@ class load_data_andor:
                     )
             else:
                 patterns = np.squeeze(
-                    f["entry1"]["instrument_1"]["detector_1"]["data"][:10, :10, :, :]
+                    f["entry1"]["instrument_1"]["detector_1"]["data"][:, :, :, :]
                 )
             patterns = patterns.astype(np.float32)
             self.patterns = patterns
@@ -167,15 +167,62 @@ class load_data_andor:
             plt.imshow(np.log(np.nansum(self.patterns, axis=0)))
         else:
             plt.imshow(np.nansum(self.patterns, axis=0))
+
+        if self.rois:
+            for roi_name, roi in self.rois.items():
+                y0, y1 = roi[0]
+                x0, x1 = roi[1]
+                rect = plt.Rectangle(
+                    (x0, y0),
+                    x1 - x0,
+                    y1 - y0,
+                    linewidth=2,
+                    edgecolor=roi_name,
+                    facecolor="none",
+                    linestyle="--",
+                )
+                plt.gca().add_patch(rect)
+                plt.text(
+                    (x0 + x1) / 2,
+                    (y0 + y1) / 2,
+                    roi_name,
+                    color="white",
+                    fontsize=8,
+                    ha="center",
+                    va="center",
+                )
         return plt.show()
 
     def plot_complete_overview(self):
         # Create 2x2 subplots
         fig, axes = plt.subplots(2, 2, figsize=(8, 8))
-
+        fig.suptitle(self.filename_trun)
         # Plot 1 (top-left)
         axes[0, 0].imshow(np.log(np.nanmean(self.patterns, axis=0)))
         axes[0, 0].set_title("nanmean")
+        if self.rois:
+            for roi_name, roi in self.rois.items():
+                y0, y1 = roi[0]
+                x0, x1 = roi[1]
+                rect = plt.Rectangle(
+                    (x0, y0),
+                    x1 - x0,
+                    y1 - y0,
+                    linewidth=2,
+                    edgecolor=roi_name,
+                    facecolor="none",
+                    linestyle="--",
+                )
+                axes[0, 0].add_patch(rect)
+                axes[0, 0].text(
+                    (x0 + x1) / 2,
+                    (y0 + y1) / 2,
+                    roi_name,
+                    color="white",
+                    fontsize=8,
+                    ha="center",
+                    va="center",
+                )
 
         # Plot 2 (top-right)
         axes[0, 1].plot(np.nanmean(self.patterns, axis=(1, 2)))
@@ -191,6 +238,31 @@ class load_data_andor:
         axes[1, 0].set_ylabel("mean intensity")
         axes[1, 0].grid(True)
 
+        # Plot 4 (bottom-right) will show the g2 correlation function all rois in self.rois
+        axes[1, 1].set_title("g2 correlation function")
+        if self.rois:
+            for roi_name, roi in self.rois.items():
+                y0, y1 = roi[0]
+                x0, x1 = roi[1]
+                patterns_roi = self.patterns[:, y0:y1, x0:x1]
+                g2_result = g2_fft_t(patterns_roi)
+                axes[1, 1].plot(
+                    np.arange(1, g2_result.shape[0]),
+                    np.nanmean(g2_result, axis=(1, 2))[1:],
+                    label=roi_name,
+                    color=roi_name,
+                    alpha=0.7,
+                )
+        else:
+            # no rois defined
+            pass
+        axes[1, 1].set_xlabel("lag time")
+        axes[1, 1].set_ylabel("g2 correlation")
+        axes[1, 1].legend()
+        axes[1, 1].grid(True)
+        # Set x-axis to log scale for the g2 correlation function plot
+        axes[1, 1].set_xscale("log")
+
         # Adjust spacing between subplots
         plt.tight_layout()
 
@@ -199,3 +271,9 @@ class load_data_andor:
 
     def add_g2_roi(self, new_roi):
         self.rois.update(new_roi)
+
+    def update_g2_roi(self, new_roi):
+        self.rois.update(new_roi)
+
+    def set_g2_roi(self, new_roi):
+        self.rois = new_roi
