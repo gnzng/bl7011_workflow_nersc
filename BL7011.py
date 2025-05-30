@@ -165,16 +165,19 @@ class load_data_andor:
                 )
             patterns = patterns.astype(np.float32)
             self.patterns = patterns
+            self.patterns_mean = np.nanmean(patterns, axis=0)
+            self.patterns_sum = np.nansum(patterns, axis=0)
             periods = f["entry1"]["instrument_1"]["detector_1"]["period"][()]
             count_time = f["entry1"]["instrument_1"]["detector_1"]["count_time"][()]
             periods += count_time
+            self.periods = periods
             # readout_time = f["entry1"]["instrument_1"]["detector_1"]["detector_readout_time"][()]
             temps = f["entry1"]["instrument_1"]["labview_data"]["LS_LLHTA"][()]
             self.temps = temps
 
             # normalize patterns to the mean per frame:
             if norm == "mean":
-                patterns_mean = np.mean(patterns, axis=(1, 2))
+                patterns_mean = np.nanmean(patterns, axis=(1, 2))
                 # logger.debug(f"patterns_mean shape: {patterns_mean.shape}")
                 patterns = patterns / patterns_mean[:, None, None]
                 # logger.debug(f"patterns shape: {patterns.shape}")
@@ -194,9 +197,9 @@ class load_data_andor:
         plt.figure()
         plt.title(f"{self.filename_trun} ({'log' if log else 'lin'})")
         if log:
-            plt.imshow(np.log(np.nansum(self.patterns, axis=0)))
+            plt.imshow(np.log(self.patterns_sum))
         else:
-            plt.imshow(np.nansum(self.patterns, axis=0))
+            plt.imshow(self.patterns_sum)
 
         if self.rois:
             for roi_name, roi in self.rois.items():
@@ -228,7 +231,7 @@ class load_data_andor:
         fig, axes = plt.subplots(2, 2, figsize=(8, 8))
         fig.suptitle(self.filename_trun)
         # Plot 1 (top-left)
-        axes[0, 0].imshow(np.log(np.nanmean(self.patterns, axis=0)))
+        axes[0, 0].imshow(np.log(self.patterns_mean))
         axes[0, 0].set_title("log nanmean")
         if self.rois:
             for roi_name, roi in self.rois.items():
