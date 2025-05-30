@@ -5,6 +5,10 @@ import matplotlib.pyplot as plt
 import os
 
 
+# ignoring the divide by zero warning in numpy (mostly for np.log outputs)
+np.seterr(divide="ignore")
+
+
 # calculate g2 using the fft on pytorch:
 def g2_fft_t(
     img_stack: np.ndarray, device: str = "cpu", cut_last_ratio: float = 0.5
@@ -188,7 +192,7 @@ class load_data_andor:
 
     def plot_sum_frames(self, log=True):
         plt.figure()
-        plt.title(self.filename_trun)
+        plt.title(f"{self.filename_trun} ({'log' if log else 'lin'})")
         if log:
             plt.imshow(np.log(np.nansum(self.patterns, axis=0)))
         else:
@@ -225,7 +229,7 @@ class load_data_andor:
         fig.suptitle(self.filename_trun)
         # Plot 1 (top-left)
         axes[0, 0].imshow(np.log(np.nanmean(self.patterns, axis=0)))
-        axes[0, 0].set_title("nanmean")
+        axes[0, 0].set_title("log nanmean")
         if self.rois:
             for roi_name, roi in self.rois.items():
                 y0, y1 = roi[0]
@@ -250,22 +254,8 @@ class load_data_andor:
                     va="center",
                 )
 
-        # Plot 2 (top-right)
-        axes[0, 1].plot(np.nanmean(self.patterns, axis=(1, 2)))
-        axes[0, 1].set_title("stability over time")
-        axes[0, 1].set_xlabel("index")
-        axes[0, 1].set_ylabel("mean intensity")
-        axes[0, 1].grid(True)
-
-        # Plot 3 [temp right now, but can be anything]
-        axes[1, 0].plot(self.temps)
-        axes[1, 0].set_title("temp stability over time")
-        axes[1, 0].set_xlabel("index")
-        axes[1, 0].set_ylabel("mean intensity")
-        axes[1, 0].grid(True)
-
-        # Plot 4 (bottom-right) will show the g2 correlation function all rois in self.rois
-        axes[1, 1].set_title("g2 correlation function")
+        # Plot 2 (bottom-right) will show the g2 correlation function all rois in self.rois
+        axes[0, 1].set_title("g2 correlation function")
         if self.rois:
             for roi_name, roi in self.rois.items():
                 y0, y1 = roi[0]
@@ -274,7 +264,7 @@ class load_data_andor:
                 # use gpu if available
                 device = "cuda" if t.cuda.is_available() else "cpu"
                 g2_result = g2_fft_t(patterns_roi, device=device)
-                axes[1, 1].plot(
+                axes[0, 1].plot(
                     np.arange(1, g2_result.shape[0]),
                     np.nanmean(g2_result, axis=(1, 2))[1:],
                     label=roi_name,
@@ -284,12 +274,26 @@ class load_data_andor:
         else:
             # no rois defined
             pass
-        axes[1, 1].set_xlabel("lag time")
-        axes[1, 1].set_ylabel("g2 correlation")
-        axes[1, 1].legend()
-        axes[1, 1].grid(True)
+        axes[0, 1].set_xlabel("lag time")
+        axes[0, 1].set_ylabel("g2 correlation")
+        axes[0, 1].legend()
+        axes[0, 1].grid(True)
         # Set x-axis to log scale for the g2 correlation function plot
-        axes[1, 1].set_xscale("log")
+        axes[0, 1].set_xscale("log")
+
+        # Plot 3 [temp right now, but can be anything]
+        axes[1, 0].plot(self.temps)
+        axes[1, 0].set_title("temp stability over time")
+        axes[1, 0].set_xlabel("index")
+        axes[1, 0].set_ylabel("mean intensity")
+        axes[1, 0].grid(True)
+
+        # Plot 4 (bottom-right)
+        axes[1, 1].plot(np.nanmean(self.patterns, axis=(1, 2)))
+        axes[1, 1].set_title("stability over time")
+        axes[1, 1].set_xlabel("index")
+        axes[1, 1].set_ylabel("mean intensity")
+        axes[1, 1].grid(True)
 
         # Adjust spacing between subplots
         plt.tight_layout()
