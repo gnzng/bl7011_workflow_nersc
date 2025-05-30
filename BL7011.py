@@ -2,6 +2,7 @@ import numpy as np
 import torch as t
 import h5py
 import matplotlib.pyplot as plt
+import os
 
 
 # calculate g2 using the fft on pytorch:
@@ -99,11 +100,36 @@ def mean_every_n_frames(patterns, n):
 
 
 class load_data_andor:
-    def __init__(self, filename: str, norm="mean", roi=None):
-        self.filename = filename
-        self.filename_trun = filename.split("/")[-1]
+    def __init__(self, filepath: str, filename: str, norm="mean", roi=None):
+        self.file = os.path.join(filepath, filename)
+        self.filepath = os.path.dirname(self.file)
+        # check if file exists
+        if not os.path.exists(self.file):
+            # use parts of the string comparison with filename to find the file in the directory filepath
+
+            files = list()
+            for n in os.listdir(filepath):
+                if filename in n:
+                    self.file = os.path.join(filepath, n)
+                    self.filename_trun = n
+                    files.append(n)
+
+            if len(files) == 0:
+                raise FileNotFoundError(
+                    f"No file matching the pattern {filepath} found in {filename}"
+                )
+            elif len(files) > 1:
+                raise FileNotFoundError(
+                    f"Multiple files matching the pattern {filepath} found in {filename}: {files}"
+                )
+            else:
+                self.file = os.path.join(filepath, files[0])
+                self.filename_trun = files[0]
+        else:
+            self.filename_trun = os.path.basename(self.file)
+        print(f"Found file: {self.file}")
         self.rois = dict()
-        with h5py.File(filename, "r") as f:
+        with h5py.File(self.file, "r") as f:
             if roi == "find":
                 patterns = np.squeeze(
                     f["entry1"]["instrument_1"]["detector_1"]["data"][0, 0, :, :]
