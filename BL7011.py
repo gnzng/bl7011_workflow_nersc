@@ -245,7 +245,9 @@ class load_data_andor:
                 y0, y1 = roi[0]
                 x0, x1 = roi[1]
                 patterns_roi = self.patterns[:, y0:y1, x0:x1]
-                g2_result = g2_fft_t(patterns_roi)
+                # use gpu if available
+                device = "cuda" if t.cuda.is_available() else "cpu"
+                g2_result = g2_fft_t(patterns_roi, device=device)
                 axes[1, 1].plot(
                     np.arange(1, g2_result.shape[0]),
                     np.nanmean(g2_result, axis=(1, 2))[1:],
