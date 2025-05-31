@@ -186,6 +186,7 @@ class AndorDataLoader:
             self.patterns = patterns.astype(np.float32)
             self.patterns_mean = np.nanmean(patterns, axis=0)
             self.patterns_sum = np.nansum(patterns, axis=0)
+            self.original_mean_intensity = np.nanmean(self.patterns, axis=(1, 2))
 
             # Apply normalization
             self._apply_normalization()
@@ -371,7 +372,7 @@ class AndorDataVisualizer:
 
     def _plot_intensity_stability(self, ax):
         """Plot intensity stability over time."""
-        ax.plot(np.nanmean(self.data.patterns, axis=(1, 2)))
+        ax.plot(self.data.original_mean_intensity, label="Mean Intensity", color="blue")
         ax.set_title("Intensity Stability")
         ax.set_xlabel("Frame Index")
         ax.set_ylabel("Mean Intensity")
