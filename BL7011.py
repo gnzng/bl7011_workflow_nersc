@@ -349,14 +349,14 @@ class AndorDataVisualizer:
             for roi_name, roi in self.data.rois.items():
                 g2_result = self.data.compute_g2_for_roi(roi_name, device)
                 ax.plot(
-                    np.arange(1, g2_result.shape[0]),
+                    np.arange(1, g2_result.shape[0]) * self.data.periods,
                     np.nanmean(g2_result, axis=(1, 2))[1:],
                     label=roi_name,
                     color=roi_name,
                     alpha=0.7,
                 )
 
-        ax.set_xlabel("Lag Time")
+        ax.set_xlabel("Lag Time [s]")
         ax.set_ylabel("G2 Correlation")
         ax.set_xscale("log")
         ax.legend()
@@ -405,3 +405,48 @@ class AndorDataVisualizer:
                 ha="center",
                 va="center",
             )
+
+
+# ============================================================================
+# CLASS for visualization of saved g2 results
+# ============================================================================
+
+
+class G2Visualizer:
+    """
+    Visualize g2 correlation results for different regions of interest (ROIs) from
+    different saved data files.
+    """
+
+    def __init__(self, g2_data: Dict[str, Dict[str, np.ndarray]]):
+        """
+        Initialize the G2Visualizer with g2 data.
+
+        Parameters
+        ----------
+        g2_data : dict
+            Dictionary containing g2 correlation results for different ROIs.
+            Format: {filename: {roi_name: g2_result}}
+        """
+        self.g2_data = g2_data
+
+    def plot_g2_results(self):
+        """Plot g2 correlation results for all ROIs across all files."""
+        plt.figure(figsize=(12, 8))
+        plt.title("G2 Correlation Results Across Files")
+
+        for filename, rois in self.g2_data.items():
+            for roi_name, g2_result in rois.items():
+                plt.plot(
+                    np.arange(1, g2_result.shape[0]),
+                    np.nanmean(g2_result, axis=(1, 2))[1:],
+                    label=f"{filename} - {roi_name}",
+                    alpha=0.7,
+                )
+
+        plt.xlabel("Lag Time")
+        plt.ylabel("G2 Correlation")
+        plt.xscale("log")
+        plt.legend()
+        plt.grid(True)
+        plt.show()
