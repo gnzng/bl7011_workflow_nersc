@@ -355,6 +355,7 @@ class AndorDataVisualizer:
                     color=roi_name,
                     alpha=0.7,
                 )
+                # TODO save ROIs g2 results to h5 file
 
         ax.set_xlabel("Lag Time [s]")
         ax.set_ylabel("G2 Correlation")
