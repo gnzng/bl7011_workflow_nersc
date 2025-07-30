@@ -73,6 +73,63 @@ def g2_fft_t(
     return result.cpu().numpy()
 
 
+def twotime(patterns: t.Tensor, device: str = "cpu") -> Optional[t.Tensor]:
+    """
+    Compute the 2-time correlation function for the given patterns.
+
+    Parameters
+    ----------
+    patterns : torch.Tensor
+        Input tensor with shape (T, H, W) or (T, W).
+    device : str, optional
+        Device to perform computations on ('cpu' or 'cuda'). Default is 'cpu'.
+
+    Returns
+    -------
+    torch.Tensor or None
+        The computed 2-time correlation function or None if input is invalid.
+    """
+    if not isinstance(patterns, t.Tensor):
+        try:
+            patterns = t.tensor(patterns, dtype=t.float32)
+        except Exception as e:
+            print("Error converting patterns to tensor:", e)
+            return None
+
+    # proceed the patterns tensor to device
+    patterns = patterns.to(device)
+
+    # Get dimensions
+    num_frames, height, width = patterns.shape
+    device = patterns.device
+
+    # Flatten spatial dimensions
+    patterns_flat = patterns.reshape(num_frames, -1)
+
+    # we only want one ROI for this function, we can iterate over multiple ROIs later
+    # Initialize g2 matrix
+    g2 = t.zeros(num_frames, num_frames, device=device)
+
+    # Calculate mean intensity at each time
+    mean_intensities = patterns_flat.mean(dim=1)  # shape: (time,)
+
+    # Calculate g2 for all time pairs
+    for t1 in range(num_frames):
+        for t2 in range(num_frames):
+            # Calculate <I(t1)*I(t2)> / (<I(t1)>*<I(t2)>)
+            numerator = (patterns_flat[t1] * patterns_flat[t2]).mean(axis=0)
+            denominator = mean_intensities[t1] * mean_intensities[t2]
+
+            if denominator > 0:
+                g2[t1, t2] = numerator / denominator
+
+    # We want to ignore the self correlation, so we set the diagonal to NaN
+    for i in range(num_frames):
+        g2[i, i] = np.nan
+
+    return g2
+
+
 def mean_every_n_frames(patterns: t.Tensor, n: int) -> Optional[t.Tensor]:
     """
     Averages every n frames along the first dimension of a tensor.
@@ -286,6 +343,24 @@ class AndorDataLoader:
         results = {}
         for roi_name in self.rois:
             results[roi_name] = self.compute_g2_for_roi(roi_name, device)
+        return results
+
+    def compute_twotime_for_roi(self, roi_name: str, device: str = None) -> np.ndarray:
+        """Compute 2-time correlation for a specific ROI."""
+        if device is None:
+            device = "cuda" if t.cuda.is_available() else "cpu"
+
+        patterns_roi = self.get_roi_patterns(roi_name)
+
+        twotime_correlation = twotime(patterns_roi, device=device)
+
+        return twotime_correlation
+
+    def compute_twotime_for_all_rois(self, device: str = None) -> Dict[str, np.ndarray]:
+        """Compute 2-time correlation for all ROIs."""
+        results = {}
+        for roi_name in self.rois:
+            results[roi_name] = self.compute_twotime_for_roi(roi_name, device)
         return results
 
 
