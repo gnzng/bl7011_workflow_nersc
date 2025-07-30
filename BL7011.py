@@ -123,9 +123,9 @@ def twotime(patterns: t.Tensor, device: str = "cpu") -> Optional[t.Tensor]:
             if denominator > 0:
                 g2[t1, t2] = numerator / denominator
 
-    # We want to ignore the self correlation, so we set the diagonal to NaN
-    for i in range(num_frames):
-        g2[i, i] = np.nan
+            # We want to ignore the self correlation, so we set the diagonal to NaN
+            if t1 == t2:
+                g2[t1, t2] = t.nan
 
     return g2
 
