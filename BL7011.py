@@ -236,8 +236,16 @@ class AndorDataLoader:
             patterns = self._extract_patterns(f, roi)
 
             # Load metadata
-            self.periods = self._extract_periods(f)
-            self.temps = self._extract_temperatures(f)
+            try:
+                self.periods = self._extract_periods(f)
+            except KeyError:
+                print("Periods data not found in the file, initializing empty array.")
+                self.periods = np.array([])
+            try:
+                self.temps = self._extract_temperatures(f)
+            except KeyError:
+                print("Temperature data not found in the file, initializing empty array.")
+                self.temps = np.array([])
 
             # Store original data
             self.patterns = patterns.astype(np.float32)
