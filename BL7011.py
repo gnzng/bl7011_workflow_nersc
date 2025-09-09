@@ -244,13 +244,15 @@ class AndorDataLoader:
             try:
                 self.temps = self._extract_temperatures(f)
             except KeyError:
-                print("Temperature data not found in the file, initializing empty array.")
+                print(
+                    "Temperature data not found in the file, initializing empty array."
+                )
                 self.temps = np.array([])
 
             # Store original data
             self.patterns = patterns.astype(np.float32)
             self.patterns_mean = np.nanmean(patterns, axis=0)
-            self.patterns_sum = np.nansum(patterns, axis=0)
+            # self.patterns_sum = np.nansum(patterns, axis=0)
             self.original_mean_intensity = np.nanmean(self.patterns, axis=(1, 2))
 
             # Apply normalization
@@ -383,15 +385,15 @@ class AndorDataVisualizer:
     def __init__(self, data_loader: AndorDataLoader):
         self.data = data_loader
 
-    def plot_sum_frames(self, log: bool = True):
-        """Plot the sum of all frames."""
+    def plot_first_frames(self, log: bool = True):
+        """Plot the first frame."""
         plt.figure(figsize=(10, 8))
         plt.title(f"{self.data.filename_truncated} ({'log' if log else 'linear'})")
 
         if log:
-            plt.imshow(np.log(self.data.patterns_sum))
+            plt.imshow(np.log(np.mean(self.data.patterns[:10], axis=0)))
         else:
-            plt.imshow(self.data.patterns_sum)
+            plt.imshow(np.mean(self.data.patterns[:10], axis=0))
 
         self._add_roi_overlays()
         plt.colorbar()
