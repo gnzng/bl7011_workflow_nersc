@@ -317,9 +317,16 @@ class dataset_xpcs:
             else:
                 self.camera_type = "Unknown"
 
-            self.count_time = f["entry1/instrument_1/detector_1/count_time"][()]
-            self.tempsA = f["entry1/instrument_1/labview_data/LS_LLHTA"][()]
-            self.tempsB = f["entry1/instrument_1/labview_data/LS_LLHTB"][()]
+            try:
+                self.count_time = f["entry1/instrument_1/detector_1/count_time"][()]
+            except KeyError:
+                self.count_time = None
+            try:
+                self.tempsA = f["entry1/instrument_1/labview_data/LS_LLHTA"][()]
+                self.tempsB = f["entry1/instrument_1/labview_data/LS_LLHTB"][()]
+            except KeyError:
+                self.tempsA = None
+                self.tempsB = None
 
         if patterns.ndim == 2:
             return patterns
