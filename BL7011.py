@@ -1,16 +1,15 @@
-import numpy as np
-import torch as t
 import h5py
 import matplotlib.pyplot as plt
-from typing import Optional, Tuple, Dict, Union
+import numpy as np
+import torch as t
 from pathlib import Path
+from typing import Dict, List, Optional, Tuple, Union
 
 # Configure numpy warnings
 np.seterr(divide="ignore")
 
-# ============================================================================
-# UTILITY FUNCTIONS
-# ============================================================================
+# colors for rois based on matplotlib base colors
+BASE_COLORS = ["red", "green", "blue", "cyan", "magenta", "yellow", "orange"]
 
 
 def g2_fft_t(
@@ -161,39 +160,40 @@ def mean_every_n_frames(patterns: t.Tensor, n: int) -> Optional[t.Tensor]:
         return patterns_subset.reshape(frames // n, n, width, height).mean(dim=1)
 
 
-# ============================================================================
-# DATA LOADER CLASS
-# ============================================================================
+class dataset_xpcs:
+    """Class for loading and processing detector data from HDF5 files.
+    Works with Andor and MTE detectors at COSMIC Scattering.
+    """
 
+    def __init__(self):
+        """
+        Initialize the data loader.
+        """
 
-class AndorDataLoader:
-    """Class for loading and processing Andor detector data from HDF5 files."""
-
-    def __init__(
+    def load_file(
         self,
         filepath: str,
         filename: str,
-        norm: str = "mean",
-        roi: Optional[Tuple] = None,
+        plot: bool = False,
+        log_plot: bool = False,
+        average_first_n: int = 1,
     ):
         """
-        Initialize the data loader.
-
         Parameters
-        ----------
-        filepath : str
-            Path to the directory containing the data file
-        filename : str
-            Name of the data file
-        norm : str, optional
-            Normalization method ('mean', 'sum', or 'none')
-        roi : tuple, optional
-            Region of interest as (y0, y1, x0, x1) or 'find' to display image
+            ----------
+            filepath : str
+                Path to the directory containing the data file
+            filename : str
+                Name of the data file or substring to search for
+            plot : bool, optional
+                Whether to display the first frame. Default is False.
+            log_plot : bool, optional
+                Whether to display the first frame with a logarithmic scale. Default is False.
+            average_first_n : int, optional
+                Number of initial frames to average. Default is 1 (no averaging).
         """
         self.filepath = Path(filepath)
         self.filename = filename
-        self.norm = norm
-        self.rois: Dict[str, Tuple] = {}
 
         # Find and validate file
         self.file_path = self._find_file()
@@ -202,7 +202,74 @@ class AndorDataLoader:
         print(f"Found file: {self.file_path}")
 
         # Load data
-        self._load_data(roi)
+        self.first_frame = self.load_first_frame(filepath, average_first_n)
+
+        if plot:
+            self.plot_single_frame_with_roi(log_plot=log_plot)
+
+    def plot_single_frame_with_roi(self, log_plot: bool = False):
+        """
+        Plotting a single frame with optional ROIs overlaid.
+
+        Parameters
+        ----------
+        rois : dict, optional
+            Dictionary of ROIs to overlay on the image. Default is empty dict.
+        log_plot : bool, optional
+            Whether to use logarithmic scale for the image. Default is False.
+        """
+
+        if not hasattr(self, "first_frame"):
+            raise AttributeError("First frame not loaded. Please load data first.")
+
+        plt.figure(figsize=(10, 8))
+
+        if log_plot:
+            plt.imshow(
+                np.log10(self.first_frame + 1),  # Add 1 to avoid log(0)
+                vmin=np.percentile(np.log10(self.first_frame + 1), 5),
+                vmax=np.percentile(np.log10(self.first_frame + 1), 90),
+            )
+        else:
+            plt.imshow(
+                self.first_frame,
+                vmin=np.percentile(self.first_frame, 5),
+                vmax=np.percentile(self.first_frame, 90),
+            )
+        if log_plot:
+            plt.colorbar(label="Log10(Intensity + 1)")
+        else:
+            plt.colorbar(label="Intensity")
+
+        if hasattr(self, "rois"):
+            ax = plt.gca()
+            for roi_name, roi in self.rois.items():
+                y0, y1 = roi[0]
+                x0, x1 = roi[1]
+                rect = plt.Rectangle(
+                    (x0, y0),
+                    x1 - x0,
+                    y1 - y0,
+                    linewidth=2,
+                    edgecolor=roi_name,
+                    facecolor="none",
+                    linestyle="--",
+                )
+                ax.add_patch(rect)
+                ax.text(
+                    (x0 + x1) / 2,
+                    (y0 + y1) / 2,
+                    roi_name,
+                    color="white",
+                    fontsize=8,
+                    ha="center",
+                    va="center",
+                )
+        plt.title(f"First frame of {self.filename_truncated}")
+        plt.show()
+        print(
+            "If you want to do more plotting of this, you can access it via self.first_frame"
+        )
 
     def _find_file(self) -> Path:
         """Find the data file in the specified directory."""
@@ -225,12 +292,30 @@ class AndorDataLoader:
 
         return matching_files[0]
 
+    def load_first_frame(self, filepath: str, average_first_n: int) -> np.ndarray:
+        """Load and return the first frame from the data file."""
+        with h5py.File(self.file_path, "r") as f:
+            if average_first_n > 1:
+                n = int(average_first_n)
+                patterns = np.squeeze(
+                    f["entry1/instrument_1/detector_1/data"][0, :n, :, :]
+                )
+                patterns = np.mean(patterns, axis=0)
+            else:
+                patterns = np.squeeze(
+                    f["entry1/instrument_1/detector_1/data"][0, 0, :, :]
+                )
+
+        if patterns.ndim == 2:
+            return patterns
+        elif patterns.ndim == 3:
+            return patterns[0, :, :]
+        else:
+            raise ValueError("Unexpected data shape for first frame.")
+
     def _load_data(self, roi: Optional[Union[str, Tuple]]):
         """Load data from HDF5 file."""
         with h5py.File(self.file_path, "r") as f:
-            if roi == "find":
-                self._display_roi_finder(f)
-                return
 
             # Load patterns with optional ROI
             patterns = self._extract_patterns(f, roi)
@@ -284,19 +369,6 @@ class AndorDataLoader:
         """Extract temperature data from HDF5 file."""
         return f["entry1/instrument_1/labview_data/LS_LLHTA"][()]
 
-    def _display_roi_finder(self, f: h5py.File):
-        """Display image for ROI selection."""
-        patterns = np.squeeze(f["entry1/instrument_1/detector_1/data"][0, 0, :, :])
-        plt.figure(figsize=(10, 8))
-        plt.imshow(
-            patterns,
-            vmin=np.percentile(patterns, 5),
-            vmax=np.percentile(patterns, 90),
-        )
-        plt.colorbar()
-        plt.title("Select ROI from this image")
-        plt.show()
-
     def _apply_normalization(self):
         """Apply normalization to the patterns."""
         if self.norm == "mean":
@@ -316,6 +388,13 @@ class AndorDataLoader:
 
     def add_roi(self, roi_dict: Dict[str, Tuple]):
         """Add ROI(s) to the collection."""
+
+        # check if the key is in BASE_COLORS if not warn the user
+        for roi_name in roi_dict.keys():
+            if roi_name not in BASE_COLORS:
+                print(
+                    f"Warning: ROI name '{roi_name}' is not a standard color name. Consider using one of {BASE_COLORS} for better visualization."
+                )
         self.rois.update(roi_dict)
 
     def update_roi(self, roi_dict: Dict[str, Tuple]):
@@ -334,7 +413,18 @@ class AndorDataLoader:
         roi = self.rois[roi_name]
         y0, y1 = roi[0]
         x0, x1 = roi[1]
-        return self.patterns[:, y0:y1, x0:x1]
+
+        return self._load_roi_volume_patterns((y0, y1, x0, x1))
+
+    def _load_roi_volume_patterns(self, roi: Tuple) -> np.ndarray:
+        """Load volume patterns for a specific ROI."""
+        with h5py.File(self.file_path, "r") as f:
+            patterns = np.squeeze(
+                f["entry1/instrument_1/detector_1/data"][
+                    :, :, roi[0] : roi[1], roi[2] : roi[3]
+                ]
+            )
+        return patterns.astype(np.float32)
 
     # ========================================================================
     # ANALYSIS METHODS
@@ -353,7 +443,46 @@ class AndorDataLoader:
         results = {}
         for roi_name in self.rois:
             results[roi_name] = self.compute_g2_for_roi(roi_name, device)
-        return results
+
+        # this is a dictionary with g2 results for all rois
+        self.g2_results_cubes = results
+
+        # also compute the g2 curve (mean over all pixels) for all rois
+        self.g2_results_curves = {}
+        for roi_name, g2_cube in results.items():
+            self.g2_results_curves[roi_name] = g2_cube.mean(axis=(1, 2))
+
+    def plot_g2curve(self, roi_names: List[str] = None):
+        """Plot g2 curve for a specific ROI."""
+        if not hasattr(self, "g2_results_curves"):
+            raise AttributeError(
+                "g2 results not computed. Please run compute_g2_for_all_rois() first."
+            )
+        if roi_names is None:
+            roi_names = list(self.g2_results_curves.keys())
+
+        plt.figure(figsize=(8, 5))
+        for roi_name in roi_names:
+            g2_curve = self.g2_results_curves[roi_name]
+            if roi_name in BASE_COLORS:
+                color = roi_name
+            else:
+                color = None
+
+            if color is not None:
+                plt.plot(g2_curve[1:], label=f"g2 Curve - ROI: {roi_name}", color=color)
+            else:
+                plt.plot(g2_curve[1:], label=f"g2 Curve - ROI: {roi_name}")
+        plt.xlabel("Time Delay (frames)")
+        plt.ylabel("g2")
+        plt.title(f"g2 Curve for ROI: {roi_name}\n File: {self.filename_truncated}")
+        plt.legend()
+        plt.grid(True)
+        plt.xscale("log")
+        plt.show()
+        print(
+            "If you want to do more plotting of this, you can access it via self.g2_results_curves"
+        )
 
     def compute_twotime_for_roi(self, roi_name: str, device: str = None) -> np.ndarray:
         """Compute 2-time correlation for a specific ROI."""
@@ -371,168 +500,41 @@ class AndorDataLoader:
         results = {}
         for roi_name in self.rois:
             results[roi_name] = self.compute_twotime_for_roi(roi_name, device)
-        return results
 
+        # this is a dictionary with 2-time results for all rois
+        self.twotime_results = results
 
-# ============================================================================
-# VISUALIZATION CLASS
-# ============================================================================
-
-
-class AndorDataVisualizer:
-    """Class for visualizing Andor data and analysis results."""
-
-    def __init__(self, data_loader: AndorDataLoader):
-        self.data = data_loader
-
-    def plot_first_frames(self, log: bool = True):
-        """Plot the first frame."""
-        plt.figure(figsize=(10, 8))
-        plt.title(f"{self.data.filename_truncated} ({'log' if log else 'linear'})")
-
-        if log:
-            plt.imshow(np.log(np.mean(self.data.patterns[:10], axis=0)))
-        else:
-            plt.imshow(np.mean(self.data.patterns[:10], axis=0))
-
-        self._add_roi_overlays()
-        plt.colorbar()
-        plt.show()
-
-    def plot_complete_overview(self):
-        """Create a comprehensive 2x2 subplot overview."""
-        fig, axes = plt.subplots(2, 2, figsize=(12, 10))
-        fig.suptitle(self.data.filename_truncated)
-
-        # Plot mean patterns (log scale)
-        self._plot_mean_patterns(axes[0, 0])
-
-        # Plot g2 correlation functions
-        self._plot_g2_correlations(axes[0, 1])
-
-        # Plot temperature stability
-        self._plot_temperature_stability(axes[1, 0])
-
-        # Plot intensity stability
-        self._plot_intensity_stability(axes[1, 1])
-
-        plt.tight_layout()
-        plt.show()
-
-    def _plot_mean_patterns(self, ax):
-        """Plot mean patterns with ROI overlays."""
-        ax.imshow(np.log(self.data.patterns_mean))
-        ax.set_title("Log Mean Patterns")
-        self._add_roi_overlays(ax)
-
-    def _plot_g2_correlations(self, ax):
-        """Plot g2 correlation functions for all ROIs."""
-        ax.set_title("G2 Correlation Functions")
-
-        if self.data.rois:
-            device = "cuda" if t.cuda.is_available() else "cpu"
-            for roi_name, roi in self.data.rois.items():
-                g2_result = self.data.compute_g2_for_roi(roi_name, device)
-                ax.plot(
-                    np.arange(1, g2_result.shape[0]) * self.data.periods,
-                    np.nanmean(g2_result, axis=(1, 2))[1:],
-                    label=roi_name,
-                    color=roi_name,
-                    alpha=0.7,
-                )
-                # TODO save ROIs g2 results to h5 file
-
-        ax.set_xlabel("Lag Time [s]")
-        ax.set_ylabel("G2 Correlation")
-        ax.set_xscale("log")
-        ax.legend()
-        ax.grid(True)
-
-    def _plot_temperature_stability(self, ax):
-        """Plot temperature stability over time."""
-        ax.plot(self.data.temps)
-        ax.set_title("Temperature Stability")
-        ax.set_xlabel("Frame Index")
-        ax.set_ylabel("Temperature")
-        ax.grid(True)
-
-    def _plot_intensity_stability(self, ax):
-        """Plot intensity stability over time."""
-        ax.plot(self.data.original_mean_intensity, label="Mean Intensity", color="blue")
-        ax.set_title("Intensity Stability")
-        ax.set_xlabel("Frame Index")
-        ax.set_ylabel("Mean Intensity")
-        ax.grid(True)
-
-    def _add_roi_overlays(self, ax=None):
-        """Add ROI overlays to the current or specified axes."""
-        if ax is None:
-            ax = plt.gca()
-
-        for roi_name, roi in self.data.rois.items():
-            y0, y1 = roi[0]
-            x0, x1 = roi[1]
-            rect = plt.Rectangle(
-                (x0, y0),
-                x1 - x0,
-                y1 - y0,
-                linewidth=2,
-                edgecolor=roi_name,
-                facecolor="none",
-                linestyle="--",
-            )
-            ax.add_patch(rect)
-            ax.text(
-                (x0 + x1) / 2,
-                (y0 + y1) / 2,
-                roi_name,
-                color="white",
-                fontsize=8,
-                ha="center",
-                va="center",
+    def plot_twotime(self, roi_names: List[str] = None):
+        """Plot 2-time correlation for a specific ROI."""
+        if not hasattr(self, "twotime_results"):
+            raise AttributeError(
+                "2-time results not computed. Please run compute_twotime_for_all_rois() first."
             )
 
+        if roi_names is None:
+            roi_names = list(self.twotime_results.keys())
 
-# ============================================================================
-# CLASS for visualization of saved g2 results
-# ============================================================================
+        for roi_name in roi_names:
+            if roi_name not in self.twotime_results:
+                raise KeyError(f"ROI '{roi_name}' not found in 2-time results.")
 
-
-class G2Visualizer:
-    """
-    Visualize g2 correlation results for different regions of interest (ROIs) from
-    different saved data files.
-    """
-
-    def __init__(self, g2_data: Dict[str, Dict[str, np.ndarray]]):
-        """
-        Initialize the G2Visualizer with g2 data.
-
-        Parameters
-        ----------
-        g2_data : dict
-            Dictionary containing g2 correlation results for different ROIs.
-            Format: {filename: {roi_name: g2_result}}
-        """
-        self.g2_data = g2_data
-
-    def plot_g2_results(self):
-        """Plot g2 correlation results for all ROIs across all files."""
-        plt.figure(figsize=(12, 8))
-        plt.title("G2 Correlation Results Across Files")
-
-        for filename, rois in self.g2_data.items():
-            for roi_name, g2_result in rois.items():
-                plt.plot(
-                    np.arange(1, g2_result.shape[0]),
-                    np.nanmean(g2_result, axis=(1, 2))[1:],
-                    label=f"{filename} - {roi_name}",
-                    alpha=0.7,
-                )
-
-        plt.xlabel("Lag Time")
-        plt.ylabel("G2 Correlation")
-        plt.xscale("log")
-        plt.legend()
-        plt.grid(True)
-        plt.show()
+            twotime_matrix = self.twotime_results[roi_name]
+            plt.figure(figsize=(8, 6))
+            plt.imshow(
+                twotime_matrix,
+                origin="lower",
+                aspect="auto",
+                vmin=np.nanpercentile(twotime_matrix, 5),
+                vmax=np.nanpercentile(twotime_matrix, 95),
+                cmap="viridis",
+            )
+            plt.colorbar(label="2-Time Correlation")
+            plt.xlabel("Time Frame")
+            plt.ylabel("Time Frame")
+            plt.title(
+                f"2-Time Correlation for ROI: {roi_name}\n File: {self.filename_truncated}"
+            )
+            plt.show()
+        print(
+            "If you want to do more plotting of this, you can access it via self.twotime_results"
+        )
