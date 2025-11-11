@@ -293,7 +293,8 @@ class dataset_xpcs:
         return matching_files[0]
 
     def load_first_frame(self, filepath: str, average_first_n: int) -> np.ndarray:
-        """Load and return the first frame from the data file."""
+        """Load and return the first frame from the data file. And save other
+        important metadata like periods and temperatures."""
         with h5py.File(self.file_path, "r") as f:
             if average_first_n > 1:
                 n = int(average_first_n)
@@ -305,6 +306,20 @@ class dataset_xpcs:
                 patterns = np.squeeze(
                     f["entry1/instrument_1/detector_1/data"][0, 0, :, :]
                 )
+            self.periods = f["entry1/instrument_1/detector_1/period"][()]
+
+            if b"Andor CCD" in f["entry1/instrument_1/detector_1/description"][()]:
+                self.camera_type = "Andor CCD"
+            # transform the periods for the MTE detector from millisconds to seconds
+            elif b"MTE" in f["entry1/instrument_1/detector_1/description"][()]:
+                self.periods *= 1e-3
+                self.camera_type = "MTE3"
+            else:
+                self.camera_type = "Unknown"
+
+            self.count_time = f["entry1/instrument_1/detector_1/count_time"][()]
+            self.tempsA = f["entry1/instrument_1/labview_data/LS_LLHTA"][()]
+            self.tempsB = f["entry1/instrument_1/labview_data/LS_LLHTB"][()]
 
         if patterns.ndim == 2:
             return patterns
@@ -358,16 +373,6 @@ class dataset_xpcs:
             patterns = np.squeeze(f[data_path][:, :, :, :])
 
         return patterns
-
-    def _extract_periods(self, f: h5py.File) -> np.ndarray:
-        """Extract period data from HDF5 file."""
-        periods = f["entry1/instrument_1/detector_1/period"][()]
-        count_time = f["entry1/instrument_1/detector_1/count_time"][()]
-        return periods + count_time
-
-    def _extract_temperatures(self, f: h5py.File) -> np.ndarray:
-        """Extract temperature data from HDF5 file."""
-        return f["entry1/instrument_1/labview_data/LS_LLHTA"][()]
 
     def _apply_normalization(self):
         """Apply normalization to the patterns."""
@@ -461,6 +466,17 @@ class dataset_xpcs:
         if roi_names is None:
             roi_names = list(self.g2_results_curves.keys())
 
+        try:
+            delay_times = self.periods * np.arange(
+                len(next(iter(self.g2_results_curves.values())))
+            )
+        except Exception as e:
+            print(
+                f"Error computing delay times from periods: {e}. Using default frame indices instead."
+            )
+            delay_times = np.arange(len(next(iter(self.g2_results_curves.values()))))
+            time_working = False
+
         plt.figure(figsize=(8, 5))
         for roi_name in roi_names:
             g2_curve = self.g2_results_curves[roi_name]
@@ -469,11 +485,26 @@ class dataset_xpcs:
             else:
                 color = None
 
+            time_working = True
             if color is not None:
-                plt.plot(g2_curve[1:], label=f"g2 Curve - ROI: {roi_name}", color=color)
+                plt.plot(
+                    delay_times[1:],
+                    g2_curve[1:],
+                    label=f"g2 Curve - ROI: {roi_name}",
+                    color=color,
+                )
+
             else:
-                plt.plot(g2_curve[1:], label=f"g2 Curve - ROI: {roi_name}")
-        plt.xlabel("Time Delay (frames)")
+
+                plt.plot(
+                    delay_times[1:],
+                    g2_curve[1:],
+                    label=f"g2 Curve - ROI: {roi_name}",
+                )
+        if time_working:
+            plt.xlabel("Time Delay (s)")
+        else:
+            plt.xlabel("Time Delay (frames)")
         plt.ylabel("g2")
         plt.title(f"g2 Curve for ROI: {roi_name}\n File: {self.filename_truncated}")
         plt.legend()
