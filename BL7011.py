@@ -556,7 +556,7 @@ class dataset_xpcs:
             if roi_name not in self.twotime_results:
                 raise KeyError(f"ROI '{roi_name}' not found in 2-time results.")
 
-            twotime_matrix = self.twotime_results[roi_name]
+            twotime_matrix = self.twotime_results[roi_name].cpu().numpy()
             plt.figure(figsize=(8, 6))
             plt.imshow(
                 twotime_matrix,
